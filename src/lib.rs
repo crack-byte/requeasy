@@ -1,10 +1,19 @@
-use std::io::{BufRead, Read, Write};
+use std::borrow::Cow::{Borrowed, Owned};
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 
-use rustls::{OwnedTrustAnchor, RootCertStore};
+use rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 
-pub const DEFAULT_PORT: &str = "443";
+const DEFAULT_PORT: &str = "80";
+const SSL_PORT: &str = "443";
+
+#[derive(Debug)]
+struct ApiResponse {
+    header: HashMap<String, String>,
+    body: String,
+}
 
 fn parse_url(url: &str) -> (&str, &str, String) {
     let (protocol, rest) = url.split_once("://").unwrap();
@@ -12,7 +21,7 @@ fn parse_url(url: &str) -> (&str, &str, String) {
     let (hostname, port) = if temp_hostname.contains(":") {
         temp_hostname.split_once(":").expect("Invalid hostname")
     } else {
-        (temp_hostname, DEFAULT_PORT)
+        (temp_hostname, if protocol.eq("http") { DEFAULT_PORT } else { SSL_PORT })
     };
     let socket_addr = format!("{}:{}", hostname, port);
     (hostname, pathname, socket_addr)
@@ -32,7 +41,10 @@ fn populate_get_request(
     res += &format!("Host: {}\r\n", host);
     res += "Accept: */*\r\n";
     res += "Accept-Language: en-US,en;q=0.5\r\n";
-    res += "Connection: keep-alive\r\nAccept-Charset: UTF-8, ISO-8859-1;q=0.8\r\nContent-Type: application/json; charset=UTF-8\r\n";
+    res += "Connection: close\r\n";
+    // res += "Accept-Encoding: gzip, deflate, br\r\n";
+    res += "Accept-Charset: UTF-8, ISO-8859-1;q=0.8\r\n";
+    res += "Content-Type: application/json; charset=UTF-8\r\n";
 
     if method == "POST" || method == "PUT" {
         if headers.len() > 0 {
@@ -60,82 +72,98 @@ fn parse_resp(resp: &str) -> (&str, &str) {
     (response_header, response_data)
 }
 
-pub fn get() {
+pub fn get(url: &str) -> ApiResponse {
     // argument matching
-    let verbose_enabled = true;
-    let url = "https://dummyjson.com/products";
+    let verbose_enabled = false;
+    // let url = "https://dummyjson.com/products";
     let data = Option::None;
     let method = Option::None;
     let headers: Vec<&str> = Vec::new();
-    println!("{url}");
     let (hostname, pathname, socket_addr) = parse_url(url);
     let buffer_str = populate_get_request(hostname, &pathname, data, method, headers);
-    let tcp_socket = TcpStream::connect(socket_addr);
-
-    match tcp_socket {
-        Ok(mut stream) => {
-            if verbose_enabled {
-                let lines = buffer_str.lines();
-                for line in lines {
-                    println!("> {}", line)
-                }
-            }
-            let mut root_store = RootCertStore::empty();
-            root_store.add_trust_anchors(
-                webpki_roots::TLS_SERVER_ROOTS
-                    .iter()
-                    .map(|ta| {
-                        OwnedTrustAnchor::from_subject_spki_name_constraints(
-                            ta.subject,
-                            ta.spki,
-                            ta.name_constraints,
-                        )
-                    }),
-            );
-            let config = rustls::ClientConfig::builder()
-                .with_safe_defaults()
-                .with_root_certificates(root_store)
-                .with_no_client_auth();
-            let server_name = "dummyjson.com".try_into().unwrap();
-            let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
-            let mut sock = TcpStream::connect("dummyjson.com:443").unwrap();
-            let mut stream = rustls::Stream::new(&mut conn, &mut sock);
-            stream
-                .write_all(buffer_str.as_bytes())
-                .expect("Failed to write data to stream");
-            let mut buffer = [0; 4096 * 10];
-            let bytes = stream
-                .read(&mut buffer)
-                .expect("Failed to read from response from host!");
-            println!("{bytes}");
-            // converts buffer data into a UTF-8 enccoded string (lossy ensures invalid data can be truncated).
-            let response = String::from_utf8_lossy(&buffer[..bytes]);
-
-            // dividing the response headers and body
-            let (response_header, response_data) = parse_resp(&response);
-            if verbose_enabled {
-                let lines = response_header.split("\r\n");
-                for line in lines {
-                    println!("< {}", line)
-                }
-            }
-            println!("-->{}", response_data);
-        }
-        Err(e) => {
-            eprintln!("Failed to establish connection: {}", e);
+    if verbose_enabled {
+        let lines = buffer_str.lines();
+        for line in lines {
+            println!("> {}", line)
         }
     }
 
-    // Ok(())
-}
 
+    let server_name = hostname.try_into().unwrap();
+    let mut conn = rustls::ClientConnection::new(Arc::new(get_config()), server_name).unwrap();
+    println!("{:?}", socket_addr);
+    let mut sock = TcpStream::connect(socket_addr).unwrap();
+    let mut stream = rustls::Stream::new(&mut conn, &mut sock);
+    stream
+        .write_all(buffer_str.as_bytes())
+        .expect("Failed to write data to stream");
+    let mut reader = BufReader::new(stream);
+    let mut buff: Vec<u8> = vec![];
+    reader.read_to_end(&mut buff);
+    let response = String::from_utf8_lossy(&buff);
+
+    let mut header_map:HashMap<String,String> = HashMap::new();
+    let mut body = String::new();
+    match response {
+        Borrowed(res) => {
+            // dividing the response headers and body
+            let (response_header, response_data) = parse_resp(&res);
+
+            let lines = response_header.split("\r\n");
+            for (index, line) in lines.enumerate() {
+                if index > 0 {
+                    let (key, value) = line.split_once(":").unwrap();
+                    header_map.insert(key.parse().unwrap(), value.parse().unwrap());
+                }
+            }
+            body = response_data.to_string()
+        }
+        Owned(res) => {
+            let (response_header, response_data) = parse_resp(&res);
+
+            let lines = response_header.split("\r\n");
+            for (index, line) in lines.enumerate() {
+                if index > 0 {
+                    let (key, value) = line.split_once(":").unwrap();
+                    header_map.insert(key.parse().unwrap(), value.parse().unwrap());
+                }
+            }
+            body = response_data.to_string();
+        }
+    }
+    return ApiResponse {
+        header: header_map,
+        body: body,
+    };
+}
+fn get_config() -> ClientConfig {
+    let mut root_store = RootCertStore::empty();
+    root_store.add_trust_anchors(
+        webpki_roots::TLS_SERVER_ROOTS
+            .iter()
+            .map(|ta| {
+                OwnedTrustAnchor::from_subject_spki_name_constraints(
+                    ta.subject,
+                    ta.spki,
+                    ta.name_constraints,
+                )
+            }),
+    );
+    return ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+}
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn it_works() {
-        get();
+        let mut url = "https://dummyjson.com/products";
+        let map = get(url);
+        println!("{:?}", map.body);
+        println!("{:?}", map.header);
         assert_eq!(4, 4);
     }
 }
