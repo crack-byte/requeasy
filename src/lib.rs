@@ -1,4 +1,3 @@
-
 use std::borrow::Cow::{Borrowed, Owned};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -83,8 +82,8 @@ pub fn get(url: &str) -> ApiResponse {
     let buffer_str = populate_get_request(hostname, &pathname, data, method, headers);
     if verbose_enabled {
         let lines = buffer_str.lines();
-        for line in lines {
-            println!("> {}", line)
+        for (index, line) in lines.enumerate() {
+            println!("{:?} > {}", index, line)
         }
     }
 
@@ -100,7 +99,7 @@ pub fn get(url: &str) -> ApiResponse {
     reader.read_to_end(&mut buff);
     let response = String::from_utf8_lossy(&buff);
 
-    let mut header_map:HashMap<String,String> = HashMap::new();
+    let mut header_map: HashMap<String, String> = HashMap::new();
     let mut body = String::new();
     match response {
         Borrowed(res) => {
@@ -134,6 +133,7 @@ pub fn get(url: &str) -> ApiResponse {
         body: body,
     };
 }
+
 fn get_config() -> ClientConfig {
     let mut root_store = RootCertStore::empty();
     root_store.add_trust_anchors(

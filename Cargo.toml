@@ -1,9 +1,10 @@
 [package]
 name = "requeasy"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2021"
 description = "This library is for pratice right now"
 license = "MIT"
+repository = "https://github.com/crack-byte/requeasy"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
