@@ -1,3 +1,4 @@
+
 use std::borrow::Cow::{Borrowed, Owned};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -10,9 +11,9 @@ const DEFAULT_PORT: &str = "80";
 const SSL_PORT: &str = "443";
 
 #[derive(Debug)]
-struct ApiResponse {
-    header: HashMap<String, String>,
-    body: String,
+pub struct ApiResponse {
+    pub header: HashMap<String, String>,
+    pub body: String,
 }
 
 fn parse_url(url: &str) -> (&str, &str, String) {
@@ -75,7 +76,6 @@ fn parse_resp(resp: &str) -> (&str, &str) {
 pub fn get(url: &str) -> ApiResponse {
     // argument matching
     let verbose_enabled = false;
-    // let url = "https://dummyjson.com/products";
     let data = Option::None;
     let method = Option::None;
     let headers: Vec<&str> = Vec::new();
@@ -88,10 +88,8 @@ pub fn get(url: &str) -> ApiResponse {
         }
     }
 
-
     let server_name = hostname.try_into().unwrap();
     let mut conn = rustls::ClientConnection::new(Arc::new(get_config()), server_name).unwrap();
-    println!("{:?}", socket_addr);
     let mut sock = TcpStream::connect(socket_addr).unwrap();
     let mut stream = rustls::Stream::new(&mut conn, &mut sock);
     stream
@@ -113,7 +111,7 @@ pub fn get(url: &str) -> ApiResponse {
             for (index, line) in lines.enumerate() {
                 if index > 0 {
                     let (key, value) = line.split_once(":").unwrap();
-                    header_map.insert(key.parse().unwrap(), value.parse().unwrap());
+                    header_map.insert(key.parse().unwrap(), value.trim().parse().unwrap());
                 }
             }
             body = response_data.to_string()
@@ -125,7 +123,7 @@ pub fn get(url: &str) -> ApiResponse {
             for (index, line) in lines.enumerate() {
                 if index > 0 {
                     let (key, value) = line.split_once(":").unwrap();
-                    header_map.insert(key.parse().unwrap(), value.parse().unwrap());
+                    header_map.insert(key.parse().unwrap(), value.trim().parse().unwrap());
                 }
             }
             body = response_data.to_string();
@@ -153,17 +151,4 @@ fn get_config() -> ClientConfig {
         .with_safe_defaults()
         .with_root_certificates(root_store)
         .with_no_client_auth();
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let mut url = "https://dummyjson.com/products";
-        let map = get(url);
-        println!("{:?}", map.body);
-        println!("{:?}", map.header);
-        assert_eq!(4, 4);
-    }
 }
