@@ -4,7 +4,6 @@ version = "0.0.4"
 edition = "2021"
 description = "This library is for pratice right now"
 license = "MIT"
-license-file = "LICENSE"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
