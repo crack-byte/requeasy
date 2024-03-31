@@ -130,7 +130,7 @@ pub fn get(url: &str) -> ApiResponse {
     }
     return ApiResponse {
         header: header_map,
-        body: body,
+        body,
     };
 }
 
