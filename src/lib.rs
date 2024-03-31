@@ -60,7 +60,7 @@ fn parse_resp(resp: &str) -> (&str, &str) {
     (response_header, response_data)
 }
 
-fn get() {
+pub fn get() {
     // argument matching
     let verbose_enabled = true;
     let url = "https://dummyjson.com/products";
