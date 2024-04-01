@@ -5,10 +5,19 @@ mod tests {
     use requeasy::get;
 
     #[test]
-    fn it_works() {
+    fn get_test() {
         let  url = "https://dummyjson.com/products";
-        let map = get(&url);
-        assert!(!map.body.is_empty());
-        assert!(!map.header.is_empty());
+        let response = get(&url);
+        assert!(!response.body.is_empty());
+        assert!(!response.header.is_empty());
+    }
+    #[test]
+    fn post_test() {
+        let  url = "https://reqres.in/api/users";
+        let body = "{\"name\":\"morpheus\",\"job\":\"leader\"}";
+        let response = requeasy::post(&url, body);
+        println!("{:?}", response);
+        assert!(!response.body.is_empty());
+        assert!(!response.header.is_empty());
     }
 }
