@@ -71,7 +71,7 @@ fn parse_resp(resp: &str) -> (&str, &str) {
     let (response_header, response_data) = resp.split_once("\r\n\r\n").unwrap();
     (response_header, response_data)
 }
-
+/// dummy get method to execute a GET method call with the provided URL
 pub fn get(url: &str) -> ApiResponse {
     // argument matching
     let verbose_enabled = false;
