@@ -1,10 +1,11 @@
+use std::borrow::Cow;
 use std::borrow::Cow::{Borrowed, Owned};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 
-use rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+use rustls::{ClientConfig, ClientConnection, OwnedTrustAnchor, RootCertStore, Stream};
 
 const DEFAULT_PORT: &str = "80";
 const SSL_PORT: &str = "443";
@@ -27,15 +28,13 @@ fn parse_url(url: &str) -> (&str, &str, String) {
     (hostname, pathname, socket_addr)
 }
 
-fn populate_get_request(
+fn populate_request(
     host: &str,
     path: &str,
-    data: Option<&String>,
-    method: Option<&String>,
+    data: Option<&str>,
+    method: &str,
     headers: Vec<&str>,
 ) -> String {
-    let default_method = String::from("GET");
-    let method = method.unwrap_or(&default_method);
     let mut res = String::new();
     res += &format!("{} /{} HTTP/1.1\r\n", method, path);
     res += &format!("Host: {}\r\n", host);
@@ -44,7 +43,6 @@ fn populate_get_request(
     res += "Connection: close\r\n";
     // res += "Accept-Encoding: gzip, deflate, br\r\n";
     res += "Accept-Charset: UTF-8, ISO-8859-1;q=0.8\r\n";
-    res += "Content-Type: application/json; charset=UTF-8\r\n";
 
     if method == "POST" || method == "PUT" {
         if headers.len() > 0 {
@@ -53,7 +51,7 @@ fn populate_get_request(
             }
             res += "\r\n"
         } else {
-            res += "Content-Type: application/json\r\n";
+            res += "Content-Type: application/json; charset=UTF-8\r\n";
         }
         if let Some(data_str) = data {
             let data_bytes = data_str.as_bytes();
@@ -67,19 +65,17 @@ fn populate_get_request(
     res
 }
 
-fn parse_resp(resp: &str) -> (&str, &str) {
-    let (response_header, response_data) = resp.split_once("\r\n\r\n").unwrap();
-    (response_header, response_data)
+fn parse_response(resp: &str) -> (&str, &str) {
+    return resp.split_once("\r\n\r\n").unwrap();
 }
 /// dummy get method to execute a GET method call with the provided URL
 pub fn get(url: &str) -> ApiResponse {
-    // argument matching
     let verbose_enabled = false;
-    let data = Option::None;
-    let method = Option::None;
+    let data = None;
+    let method = String::from("GET");
     let headers: Vec<&str> = Vec::new();
     let (hostname, pathname, socket_addr) = parse_url(url);
-    let buffer_str = populate_get_request(hostname, &pathname, data, method, headers);
+    let buffer_str = populate_request(hostname, &pathname, data, &method, headers);
     if verbose_enabled {
         let lines = buffer_str.lines();
         for (index, line) in lines.enumerate() {
@@ -88,23 +84,50 @@ pub fn get(url: &str) -> ApiResponse {
     }
 
     let server_name = hostname.try_into().unwrap();
-    let mut conn = rustls::ClientConnection::new(Arc::new(get_config()), server_name).unwrap();
+    let mut conn = ClientConnection::new(Arc::new(get_config()), server_name).unwrap();
     let mut sock = TcpStream::connect(socket_addr).unwrap();
-    let mut stream = rustls::Stream::new(&mut conn, &mut sock);
+    let mut stream = Stream::new(&mut conn, &mut sock);
     stream
         .write_all(buffer_str.as_bytes())
         .expect("Failed to write data to stream");
     let mut reader = BufReader::new(stream);
     let mut buff: Vec<u8> = vec![];
     reader.read_to_end(&mut buff);
-    let response = String::from_utf8_lossy(&buff);
+    return generate_response(String::from_utf8_lossy(&buff));
+}
+pub fn post(url: &str,body:&str) -> ApiResponse {
+    let verbose_enabled = false;
+    let data = Option::from(body);
+    let method = String::from("POST");
+    let headers: Vec<&str> = Vec::new();
+    let (hostname, pathname, socket_addr) = parse_url(url);
+    let buffer_str = populate_request(hostname, &pathname, data, &method, headers);
+    if verbose_enabled {
+        let lines = buffer_str.lines();
+        for (index, line) in lines.enumerate() {
+            println!("{:?} > {}", index, line)
+        }
+    }
 
+    let server_name = hostname.try_into().unwrap();
+    let mut conn = ClientConnection::new(Arc::new(get_config()), server_name).unwrap();
+    let mut sock = TcpStream::connect(socket_addr).unwrap();
+    let mut stream = Stream::new(&mut conn, &mut sock);
+    stream
+        .write_all(buffer_str.as_bytes())
+        .expect("Failed to write data to stream");
+    let mut reader = BufReader::new(stream);
+    let mut buff: Vec<u8> = vec![];
+    reader.read_to_end(&mut buff);
+    return generate_response(String::from_utf8_lossy(&buff));
+}
+
+fn generate_response(response: Cow<str>) -> ApiResponse {
     let mut header_map: HashMap<String, String> = HashMap::new();
     let mut body = String::new();
     match response {
         Borrowed(res) => {
-            // dividing the response headers and body
-            let (response_header, response_data) = parse_resp(&res);
+            let (response_header, response_data) = parse_response(&res);
 
             let lines = response_header.split("\r\n");
             for (index, line) in lines.enumerate() {
@@ -116,7 +139,7 @@ pub fn get(url: &str) -> ApiResponse {
             body = response_data.to_string()
         }
         Owned(res) => {
-            let (response_header, response_data) = parse_resp(&res);
+            let (response_header, response_data) = parse_response(&res);
 
             let lines = response_header.split("\r\n");
             for (index, line) in lines.enumerate() {
